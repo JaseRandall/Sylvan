@@ -12,8 +12,18 @@ interface IFieldAccessor<T>
 	T GetValue(CsvDataReader reader, int ordinal);
 }
 
-interface IFieldAccessor
+
+/// <summary>
+/// An interface for the FieldAccessor
+/// </summary>
+public interface IFieldAccessor
 {
+	/// <summary>
+	/// Get the value as an object
+	/// </summary>
+	/// <param name="reader"></param>
+	/// <param name="ordinal"></param>
+	/// <returns></returns>
 	object GetValueAsObject(CsvDataReader reader, int ordinal);
 }
 
@@ -22,13 +32,29 @@ interface IFieldRangeAccessor<T>
 	long GetRange(CsvDataReader reader, long dataOffset, int ordinal, T[] buffer, int bufferOffset, int length);
 }
 
-abstract class FieldAccessor<T> : IFieldAccessor<T>, IFieldAccessor
+/// <summary>
+/// A base class for field accessors
+/// </summary>
+/// <typeparam name="T"></typeparam>
+public abstract class FieldAccessor<T> : IFieldAccessor<T>, IFieldAccessor
 {
+	/// <summary>
+	/// Gets the value as an object
+	/// </summary>
+	/// <param name="reader"></param>
+	/// <param name="ordinal"></param>
+	/// <returns></returns>
 	public object GetValueAsObject(CsvDataReader reader, int ordinal)
 	{
 		return (object)this.GetValue(reader, ordinal)!;
 	}
 
+	/// <summary>
+	/// Gets the value as it's type
+	/// </summary>
+	/// <param name="reader"></param>
+	/// <param name="ordinal"></param>
+	/// <returns></returns>
 	public abstract T GetValue(CsvDataReader reader, int ordinal);
 }
 
@@ -302,7 +328,7 @@ sealed partial class CsvDataAccessor :
 	IFieldAccessor<Stream>,
 	IFieldAccessor<TextReader>,
 	IFieldAccessor<byte[]>,
-	IFieldAccessor<char[]>,	
+	IFieldAccessor<char[]>,
 	IFieldAccessor<object>,
 	IFieldRangeAccessor<byte>,
 	IFieldRangeAccessor<char>
@@ -339,6 +365,20 @@ sealed partial class CsvDataAccessor :
 			{typeof(TimeOnly), TimeOnlyAccessor.Instance },
 #endif
 		};
+	}
+
+
+	internal static void ProvideCustomAccessor(Dictionary<Type, IFieldAccessor> customFieldAccessors)
+	{
+		foreach (var fieldAccessor in customFieldAccessors)
+		{
+			if (Accessors.ContainsKey(fieldAccessor.Key))
+			{
+				Accessors[fieldAccessor.Key] = fieldAccessor.Value;
+				return;
+			}
+			Accessors.Add(fieldAccessor.Key, fieldAccessor.Value);
+		}
 	}
 
 	internal static IFieldAccessor? GetAccessor(Type type)

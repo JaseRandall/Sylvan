@@ -223,6 +223,11 @@ public sealed partial class CsvDataReader : DbDataReader, IDbColumnSchemaGenerat
 		this.schema = options.Schema;
 		this.resultSetMode = options.ResultSetMode;
 		this.newLineMode = NewLineMode.Unknown;
+
+		if (options.CustomFieldAccessors != null)
+		{
+			CsvDataAccessor.ProvideCustomAccessor(options.CustomFieldAccessors);
+		}
 	}
 
 	static ColumnStringFactory BuildStringFactory(ColumnStringFactory? csf, StringFactory? sf)

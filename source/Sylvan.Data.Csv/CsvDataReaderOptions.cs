@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Data.Common;
 using System.Globalization;
 
@@ -180,7 +181,7 @@ public sealed class CsvDataReaderOptions
 	[Obsolete("Use DateTimeFormat instead")]
 	public string? DateFormat {
 		get => this.DateTimeFormat;
-		set => this.DateTimeFormat = value; 
+		set => this.DateTimeFormat = value;
 	}
 
 	/// <summary>
@@ -280,6 +281,11 @@ public sealed class CsvDataReaderOptions
 	/// Allows specifying a strongly-typed schema for the CSV data.
 	/// </summary>
 	public ICsvSchemaProvider? Schema { get; set; }
+
+	/// <summary>
+	/// Allows providing custom value convertors
+	/// </summary>
+	public Dictionary<Type, IFieldAccessor>? CustomFieldAccessors { get; set; }
 
 	internal void Validate()
 	{
