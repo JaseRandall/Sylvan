@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,17 +18,32 @@ public sealed class EncoderStream : Stream
 	int bufferIdx;
 
 	/// <summary>
-	/// Creates a new EncoderStream.
+	/// Creates a new non-owning <see cref="EncoderStream"/>.
+	/// </summary>
+	/// <param name="stream">The underlying stream to write to. The stream remains open when this instance is disposed.</param>
+	/// <param name="encoder">The encoder to use to write to the stream.</param>
+	/// <exception cref="ArgumentNullException"><paramref name="stream"/> or <paramref name="encoder"/> is <see langword="null"/>.</exception>
+	public EncoderStream(Stream stream, Encoder encoder)
+		: this(stream, encoder, false)
+	{
+	}
+
+	/// <summary>
+	/// Creates a new <see cref="EncoderStream"/> with configurable ownership of the underlying stream.
 	/// </summary>
 	/// <param name="stream">The underlying stream to write to.</param>
 	/// <param name="encoder">The encoder to use to write to the stream.</param>
-	public EncoderStream(Stream stream, Encoder encoder)
+	/// <param name="ownsStream">
+	/// <see langword="true"/> to dispose <paramref name="stream"/> after all encoded output has been finalized;
+	/// otherwise, <see langword="false"/> to leave it open.
+	/// </param>
+	/// <exception cref="ArgumentNullException"><paramref name="stream"/> or <paramref name="encoder"/> is <see langword="null"/>.</exception>
+	public EncoderStream(Stream stream, Encoder encoder, bool ownsStream)
 	{
-		this.stream = stream;
-		this.encoder = encoder;
+		this.stream = stream ?? throw new ArgumentNullException(nameof(stream));
+		this.encoder = encoder ?? throw new ArgumentNullException(nameof(encoder));
 		this.buffer = new byte[0x1000];
-		this.isClosed = false;
-		this.ownsStream = false;
+		this.ownsStream = ownsStream;
 	}
 
 	/// <inheritdoc/>
@@ -54,6 +68,9 @@ public sealed class EncoderStream : Stream
 	/// <inheritdoc/>
 	public override void Flush()
 	{
+		if (bufferIdx == 0)
+			return;
+
 		this.stream.Write(this.buffer, 0, bufferIdx);
 		bufferIdx = 0;
 	}
@@ -61,6 +78,9 @@ public sealed class EncoderStream : Stream
 	/// <inheritdoc/>
 	public override async Task FlushAsync(CancellationToken cancel)
 	{
+		if (bufferIdx == 0)
+			return;
+
 #if NETSTANDARD2_1 || NETCOREAPP3_0_OR_GREATER
 		await this.stream.WriteAsync(this.buffer.AsMemory().Slice(0, bufferIdx), cancel).ConfigureAwait(false);
 #else
@@ -91,14 +111,35 @@ public sealed class EncoderStream : Stream
 	{
 		var src = buffer.AsSpan().Slice(offset, count);
 		var dst = this.buffer.AsSpan().Slice(bufferIdx);
-		int dstCount;
-		int srcCount;
-		var result = this.encoder.Encode(src, dst, out srcCount, out dstCount);
+		var result = this.encoder.Encode(src, dst, out var srcCount, out var dstCount);
 
 		offset += srcCount;
 		count -= srcCount;
 		this.bufferIdx += dstCount;
 		return result;
+	}
+
+	void FinalizeEncoding()
+	{
+		while (true)
+		{
+			var dst = this.buffer.AsSpan().Slice(bufferIdx);
+			var result = this.encoder.Encode(ReadOnlySpan<byte>.Empty, dst, out _, out var dstCount);
+			this.bufferIdx += dstCount;
+
+			switch (result)
+			{
+				case EncoderResult.RequiresOutputSpace:
+				case EncoderResult.Flush:
+					Flush();
+					break;
+				case EncoderResult.Complete:
+					Flush();
+					return;
+				default:
+					throw new InvalidOperationException($"The encoder returned {result} while finalizing its output.");
+			}
+		}
 	}
 
 	/// <inheritdoc/>
@@ -127,34 +168,31 @@ public sealed class EncoderStream : Stream
 		}
 	}
 
-	/// <inheritdoc/>
-	public override void Close()
-	{
-		if (isClosed == false)
-		{
-			var dst = this.buffer.AsSpan().Slice(bufferIdx);
-			int dstCount;
-			var result = this.encoder.Encode(ReadOnlySpan<byte>.Empty, dst, out _, out dstCount);
-			this.bufferIdx += dstCount;
-			if (result == EncoderResult.RequiresOutputSpace)
-			{
-				Flush();
-				dst = this.buffer.AsSpan().Slice(bufferIdx);
-				result = this.encoder.Encode(ReadOnlySpan<byte>.Empty, dst, out _, out dstCount);
-				this.bufferIdx += dstCount;
-				Debug.Assert(result == EncoderResult.Complete, "" + result);
-			}
-			Flush();
-			this.isClosed = true;
-		}
-	}
-
-	/// <inheritdoc/>
+	/// <summary>
+	/// Releases the resources used by this stream after finalizing all pending encoder output.
+	/// </summary>
+	/// <param name="disposing"><see langword="true"/> to release managed resources; otherwise, <see langword="false"/>.</param>
 	protected override void Dispose(bool disposing)
 	{
-		base.Dispose(disposing);
-		this.Close();
-		if (this.ownsStream)
-			this.stream.Dispose();
+		try
+		{
+			if (disposing && isClosed == false)
+			{
+				isClosed = true;
+				try
+				{
+					FinalizeEncoding();
+				}
+				finally
+				{
+					if (ownsStream)
+						this.stream.Dispose();
+				}
+			}
+		}
+		finally
+		{
+			base.Dispose(disposing);
+		}
 	}
 }
