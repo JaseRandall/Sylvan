@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
@@ -155,8 +155,8 @@ partial class DataBinder
 		return typeof(DataBinder).GetMethod(name, BindingFlags.NonPublic | BindingFlags.Static)!;
 	}
 
-	internal readonly static MethodInfo EnumParseMethod = GetBinderMethod("ParseEnum");
-	internal readonly static MethodInfo IsNullStringMethod = GetBinderMethod("IsNullString");
+	internal static readonly MethodInfo EnumParseMethod = GetBinderMethod("ParseEnum");
+	internal static readonly MethodInfo IsNullStringMethod = GetBinderMethod("IsNullString");
 
 	internal static bool IsNullString(string str)
 	{
@@ -308,6 +308,8 @@ partial class DataBinder
 			case DbType.DateTime2:
 			case DbType.Date:
 				return typeof(DateTime);
+			case DbType.Time:
+				return typeof(TimeSpan);
 			case DbType.DateTimeOffset:
 				return typeof(DateTimeOffset);
 		}
@@ -365,6 +367,11 @@ partial class DataBinder
 		if (type == typeof(DateTimeOffset))
 		{
 			return DbType.DateTimeOffset;
+		}
+
+		if (type == typeof(TimeSpan))
+		{
+			return DbType.Time;
 		}
 
 #if NET6_0_OR_GREATER
