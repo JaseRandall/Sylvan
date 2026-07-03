@@ -139,4 +139,75 @@ namespace Sylvan.Data
 		}
 		sealed class ValueRow { public string? Value { get; set; } }
 	}
+
+	public class ModernTemporalSchemaAnalyzerTests
+	{
+#if NET6_0_OR_GREATER
+		[Fact]
+		public void DateOnlyInferenceHandlesCultureNullsMixedAndInvalidValues()
+		{
+			var options = Options(TemporalInferenceOptions.DateOnly);
+			Assert.Equal(typeof(DateOnly), Analyze(new[] { "2024-01-01", "2024-01-02" }, options: options)[0].DataType);
+			Assert.Equal(typeof(DateOnly), Analyze(new[] { "31/12/2024", "01/01/2025" }, options: Options(TemporalInferenceOptions.DateOnly, new CultureInfo("en-AU")))[0].DataType);
+			var nullable = Analyze(new string?[] { "2024-01-01", null, "" }, options: options);
+			Assert.Equal(typeof(DateOnly), nullable[0].DataType);
+			Assert.True(nullable[0].AllowDBNull == true);
+			Assert.Equal(typeof(DateTime), Analyze(new[] { "2024-01-01", "2024-01-02 12:30:00" }, options: options)[0].DataType);
+			Assert.Equal(typeof(string), Analyze(new[] { "2024-01-01", "invalid" }, options: options)[0].DataType);
+		}
+
+		[Fact]
+		public void TimeOnlyInferenceUsesTimeOnlySemantics()
+		{
+			var options = Options(TemporalInferenceOptions.TimeOnly);
+			Assert.Equal(typeof(TimeOnly), Analyze(new[] { "00:00:00", "23:59:59" }, options: options)[0].DataType);
+			Assert.Equal(typeof(TimeOnly), Analyze(new[] { "1:14 PM", "11:45 AM" }, options: Options(TemporalInferenceOptions.TimeOnly, new CultureInfo("en-US")))[0].DataType);
+			Assert.Equal(typeof(string), Analyze(new[] { "01:00:00", "invalid" }, options: options)[0].DataType);
+			Assert.Equal(typeof(string), Analyze(new[] { "01:00:00", "25:00:00" }, options: options)[0].DataType);
+		}
+
+		[Fact]
+		public void TimeOnlyAndTimeSpanResolutionIsOrderIndependent()
+		{
+			var options = Options(TemporalInferenceOptions.TimeOnly | TemporalInferenceOptions.TimeSpan);
+			AssertOrder(new[] { "01:30:00", "1.02:03:04" }, typeof(TimeSpan), options);
+			AssertOrder(new[] { "01:00:00", "25:00:00" }, typeof(TimeSpan), options);
+			Assert.Equal(typeof(TimeOnly), Analyze(new[] { "01:00:00", "02:30:00" }, options: options)[0].DataType);
+			options.DurationColumnNameContains = new[] { " duration ", "", "DURATION" };
+			Assert.Equal(typeof(TimeSpan), Analyze(new[] { "01:00:00", "02:30:00" }, "ElapsedDuration", options)[0].DataType);
+			Assert.Equal(typeof(TimeOnly), Analyze(new[] { "01:00:00", "02:30:00" }, "StartTime", options)[0].DataType);
+			Assert.Equal(typeof(TimeSpan), Analyze(new[] { "01:00:00", "02:30:00" }, options: Options(TemporalInferenceOptions.TimeSpan))[0].DataType);
+		}
+
+		[Fact]
+		public void TemporalTokensResolveDirectlyAndRoundTrip()
+		{
+			var schema = Schema.Parse("Date:DaTeOnLy?,Time:TIMEONLY,Duration:TimeSpan");
+			Assert.Equal(typeof(DateOnly), schema[0].DataType);
+			Assert.Equal(typeof(TimeOnly), schema[1].DataType);
+			Assert.Equal(typeof(TimeSpan), schema[2].DataType);
+			Assert.Equal(DbType.Date, schema[0].CommonDataType);
+			Assert.Equal(DbType.Time, schema[1].CommonDataType);
+			Assert.Equal(DbType.Time, schema[2].CommonDataType);
+			var roundTrip = Schema.Parse(schema.ToString());
+			Assert.Equal(typeof(DateOnly), roundTrip[0].DataType);
+			Assert.Equal(typeof(TimeOnly), roundTrip[1].DataType);
+			Assert.Equal(typeof(TimeSpan), roundTrip[2].DataType);
+		}
+#endif
+
+		static SchemaAnalyzerOptions Options(TemporalInferenceOptions inference, CultureInfo? culture = null) => new() { TemporalInference = inference, Culture = culture };
+		static void AssertOrder(string[] values, Type type, SchemaAnalyzerOptions options)
+		{
+			Assert.Equal(type, Analyze(values, options: options)[0].DataType);
+			Assert.Equal(type, Analyze(values.Reverse().ToArray(), options: options)[0].DataType);
+		}
+		static Schema Analyze(IEnumerable<string?> values, string name = "Value", SchemaAnalyzerOptions? options = null)
+		{
+			using var reader = ObjectDataReader.CreateBuilder<ValueRow>().AddColumn(name, row => row.Value).Build(values.Select(value => new ValueRow { Value = value }));
+			return new SchemaAnalyzer(options).Analyze(reader).GetSchema();
+		}
+		static Schema Analyze(IEnumerable<string?> values, string name, SchemaAnalyzerOptions options) => Analyze(values, name, (SchemaAnalyzerOptions?)options);
+		sealed class ValueRow { public string? Value { get; set; } }
+	}
 }
