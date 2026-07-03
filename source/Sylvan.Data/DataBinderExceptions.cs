@@ -19,6 +19,7 @@ public sealed class InvalidEnumValueException : FormatException
 	public Type EnumType { get; }
 
 	internal InvalidEnumValueException(Type enumType, string value)
+		: base($"The value \"{value}\" is not a valid member of the enum type {enumType}.")
 	{
 		this.EnumType = enumType;
 		this.Value = value;
