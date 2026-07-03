@@ -1,5 +1,12 @@
 # Sylvan.Data Release Notes
 
+_Next_
+- Adds opt-in `DateOnly`, `TimeOnly` and `TimeSpan` inference to `SchemaAnalyzer`. Default analyzer behaviour is unchanged.
+- Adds explicit culture support and deterministic, row-order-independent `TimeOnly` versus `TimeSpan` selection.
+- Adds distinct `dateonly`, `timeonly` and `timespan` schema tokens with stable CLR-type round-tripping.
+- Preserves typed temporal and GUID columns during schema analysis and series detection.
+- Adds common `DbType.Time` and `TimeSpan` mapping without changing the upstream general `DbType.Date` mapping.
+
 _0.2.17_
 - Fixes a sync-over-async case in the `SchemaAnalyzer.AnalyzeAsync` method.
 
@@ -17,7 +24,7 @@ _0.2.14_
 
 _0.2.13_
 - Data binder now throws an exception if *no* properties get bound in `BindMode.Any`, now at least one must get bound.
-- Data binder now honors `DataMemberAttribute.IsRequired` property. If unbound, binder creation will throw an `UnboundMemberException` exception.
+- DataBinder now honors `DataMemberAttribute.IsRequired` property. If unbound, binder creation will throw an `UnboundMemberException` exception.
 - `AsDataReader` extension method now uses DataMemberAttribute.Name as the header string if present, otherwise the property name is used.
 
 _0.2.12_
