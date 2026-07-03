@@ -142,7 +142,7 @@ public class AnalysisResult : IEnumerable<ColumnInfo>
 		return null;
 	}
 
-	SeriesInfo? DetectSeries(ColumnInfo[] columns)
+	static SeriesInfo? DetectSeries(ColumnInfo[] columns)
 	{
 		var series = new SeriesInfo[columns.Length];
 		SeriesInfo? selected = null;
