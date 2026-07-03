@@ -5,7 +5,12 @@ using System.Data.Common;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
+
 namespace Sylvan.Data;
+
+/// <summary>
+/// Analyzes weakly-typed data to determine schema information.
+/// </summary>
 public sealed partial class SchemaAnalyzer
 {
 	readonly int rowCount;
@@ -14,6 +19,11 @@ public sealed partial class SchemaAnalyzer
 	readonly CultureInfo? culture;
 	readonly DateTimeStyles dateTimeStyles;
 	readonly string[] durationNameContains;
+
+	/// <summary>
+	/// Creates a new <see cref="SchemaAnalyzer"/>.
+	/// </summary>
+	/// <param name="options">The optional schema-analysis configuration.</param>
 	public SchemaAnalyzer(SchemaAnalyzerOptions? options = null)
 	{
 		options ??= SchemaAnalyzerOptions.Default;
@@ -24,6 +34,12 @@ public sealed partial class SchemaAnalyzer
 		this.dateTimeStyles = options.DateTimeStyles;
 		this.durationNameContains = NormalizeDurationTokens(options.DurationColumnNameContains);
 	}
+
+	/// <summary>
+	/// Analyzes a data set using synchronous reader operations.
+	/// </summary>
+	/// <param name="dataReader">The data reader to analyze.</param>
+	/// <returns>The schema-analysis result.</returns>
 	public AnalysisResult Analyze(DbDataReader dataReader)
 	{
 		if (dataReader == null)
@@ -42,6 +58,12 @@ public sealed partial class SchemaAnalyzer
 		}
 		return new AnalysisResult(detectSeries, colInfos);
 	}
+
+	/// <summary>
+	/// Analyzes a data set using asynchronous reader operations.
+	/// </summary>
+	/// <param name="dataReader">The data reader to analyze.</param>
+	/// <returns>A task containing the schema-analysis result.</returns>
 	public async Task<AnalysisResult> AnalyzeAsync(DbDataReader dataReader)
 	{
 		if (dataReader == null)
@@ -60,6 +82,7 @@ public sealed partial class SchemaAnalyzer
 		}
 		return new AnalysisResult(detectSeries, colInfos);
 	}
+
 	ColumnInfo[] CreateColumnInfo(DbDataReader dataReader)
 	{
 		var columns = new ColumnInfo[dataReader.FieldCount];
@@ -75,6 +98,7 @@ public sealed partial class SchemaAnalyzer
 		}
 		return columns;
 	}
+
 	static string[] NormalizeDurationTokens(string[]? tokens)
 	{
 		if (tokens == null || tokens.Length == 0)
@@ -98,6 +122,10 @@ public sealed partial class SchemaAnalyzer
 		return result.ToArray();
 	}
 }
+
+/// <summary>
+/// Provides schema-analysis information for a data column.
+/// </summary>
 public sealed partial class ColumnInfo
 {
 	static readonly TimeSpan OneDay = TimeSpan.FromDays(1);
@@ -140,6 +168,7 @@ public sealed partial class ColumnInfo
 	long intMax = long.MinValue;
 	int decimalScaleMax = int.MinValue;
 	int stringLenMax;
+
 	internal ColumnInfo(
 		DbDataReader reader,
 		int ordinal,
@@ -204,10 +233,23 @@ public sealed partial class ColumnInfo
 				break;
 		}
 	}
+
+	/// <summary>
+	/// Indicates whether the column allows database null values.
+	/// </summary>
 	public bool AllowDbNull => isNullable;
+
+	/// <summary>
+	/// Gets the column ordinal.
+	/// </summary>
 	public int Ordinal => ordinal;
+
+	/// <summary>
+	/// Gets the column name.
+	/// </summary>
 	public string? Name => name;
 }
+
 public sealed partial class ColumnInfo
 {
 	internal void Analyze(DbDataReader reader, int ordinal)
@@ -272,6 +314,7 @@ public sealed partial class ColumnInfo
 		}
 		if (stringValue != null) AnalyzeStringStatistics(stringValue);
 	}
+
 	void AnalyzeStringValue(string value, ref long? intValue, ref decimal? decimalValue, ref DateTime? dateValue)
 	{
 		if (string.IsNullOrWhiteSpace(value))
@@ -313,6 +356,7 @@ public sealed partial class ColumnInfo
 		}
 		if (isGuid && !Guid.TryParse(value, out _)) isGuid = false;
 	}
+
 	void AnalyzeStringStatistics(string value)
 	{
 		stringLenMax = Math.Max(stringLenMax, value.Length);
@@ -336,6 +380,7 @@ public sealed partial class ColumnInfo
 		}
 	}
 }
+
 public sealed partial class ColumnInfo
 {
 	bool TryParseDateTime(string value, out DateTime result) =>
@@ -350,6 +395,7 @@ public sealed partial class ColumnInfo
 			: DateOnly.TryParse(value, culture, dateTimeStyles, out result);
 		return parsed && !ContainsExplicitTimeComponent(value);
 	}
+
 	bool ContainsExplicitTimeComponent(string value)
 	{
 		var format = (culture ?? CultureInfo.CurrentCulture).DateTimeFormat;
@@ -361,6 +407,7 @@ public sealed partial class ColumnInfo
 		}
 		return ContainsDesignator(value, format.AMDesignator) || ContainsDesignator(value, format.PMDesignator);
 	}
+
 	static bool ContainsDesignator(string value, string designator)
 	{
 		if (string.IsNullOrEmpty(designator)) return false;
@@ -374,24 +421,29 @@ public sealed partial class ColumnInfo
 		}
 		return false;
 	}
+
 	bool TryParseTimeOnly(string value, out TimeOnly result) =>
 		culture == null
 			? TimeOnly.TryParse(value, out result)
 			: TimeOnly.TryParse(value, culture, dateTimeStyles, out result);
 #endif
+
 	bool TryParseInt64(string value, out long result) =>
 		culture == null
 			? long.TryParse(value, out result)
 			: long.TryParse(value, NumberStyles.Integer, culture, out result);
+
 	bool TryParseDouble(string value, out double result) =>
 		culture == null
 			? double.TryParse(value, out result)
 			: double.TryParse(value, NumberStyles.Float | NumberStyles.AllowThousands, culture, out result);
+
 	bool TryParseDecimal(string value, out decimal result) =>
 		culture == null
 			? decimal.TryParse(value, out result)
 			: decimal.TryParse(value, NumberStyles.Number, culture, out result);
 }
+
 public sealed partial class ColumnInfo
 {
 	bool TryParseTimeSpan(string value, out TimeSpan result, out DurationEvidence evidence)
@@ -409,6 +461,7 @@ public sealed partial class ColumnInfo
 			: TimeSpan.TryParse(text, culture, out result);
 		return parsed || TryParseExtendedHourDuration(text, out result);
 	}
+
 	bool TryParseExtendedHourDuration(string value, out TimeSpan result)
 	{
 		result = default;
@@ -440,9 +493,10 @@ public sealed partial class ColumnInfo
 		}
 		catch (OverflowException) { return false; }
 	}
+
 	static bool IsDurationLikeColumnName(string? columnName, string[] tokens)
 	{
-		if (string.IsNullOrWhiteSpace(columnName)) return false;
+		if (columnName == null || string.IsNullOrWhiteSpace(columnName)) return false;
 		foreach (var token in tokens)
 		{
 			if (columnName.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0) return true;
@@ -450,10 +504,12 @@ public sealed partial class ColumnInfo
 		return false;
 	}
 }
+
 public sealed partial class ColumnInfo
 {
 	bool HasStrongDurationEvidence =>
 		sawExplicitSign || sawDayComponent || sawNegativeDuration || sawDurationAtLeastDay;
+
 	Type? GetTemporalType()
 	{
 #if NET6_0_OR_GREATER
@@ -463,7 +519,9 @@ public sealed partial class ColumnInfo
 #endif
 		return isTimeSpan ? typeof(TimeSpan) : null;
 	}
+
 	static int GetScale(decimal value) => new DecimalScale(value).Scale;
+
 	[StructLayout(LayoutKind.Explicit)]
 	struct DecimalScale
 	{
@@ -472,11 +530,13 @@ public sealed partial class ColumnInfo
 		[FieldOffset(0)] readonly int flags;
 		public int Scale => (flags >> 16) & 0xff;
 	}
+
 	struct DurationEvidence
 	{
 		public bool ExplicitSign;
 		public bool DayComponent;
 	}
+
 	[Flags]
 	internal enum ColType
 	{
@@ -484,6 +544,7 @@ public sealed partial class ColumnInfo
 		Double = 32, Decimal = 64, String = 128, Guid = 256,
 		DateOnly = 512, TimeOnly = 1024, TimeSpan = 2048,
 	}
+
 	internal ColType GetColType()
 	{
 		if (typedGuid) return ColType.Guid;
@@ -511,6 +572,7 @@ public sealed partial class ColumnInfo
 		if (isGuid) return ColType.Guid;
 		return ColType.String;
 	}
+
 	internal static Type GetType(ColType type)
 	{
 		if ((type & ColType.Boolean) != 0) return typeof(bool);
@@ -530,6 +592,7 @@ public sealed partial class ColumnInfo
 		return typeof(string);
 	}
 }
+
 public sealed partial class ColumnInfo
 {
 	internal Schema.Column.Builder CreateColumnSchema()
@@ -592,17 +655,21 @@ public sealed partial class ColumnInfo
 			CommonDataType = isAscii ? DbType.AnsiString : DbType.String,
 		};
 	}
+
 	string? FindValue(string[] candidates)
 	{
 		foreach (var value in candidates)
 			if (valueCount.ContainsKey(value)) return value;
 		return null;
 	}
+
 	Schema.Column.Builder CreateTemporalColumn(string columnName, Type dataType, DbType commonDataType) =>
 		new(columnName, dataType, isNullable) { CommonDataType = commonDataType };
+
 	static readonly string[] TrueStrings = { "y", "yes", "t", "true" };
 	static readonly string[] FalseStrings = { "n", "no", "f", "false" };
 }
+
 [Flags]
 enum SeriesType
 {
