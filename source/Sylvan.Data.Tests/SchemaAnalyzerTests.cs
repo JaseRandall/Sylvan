@@ -117,6 +117,8 @@ namespace Sylvan.Data
 			Assert.Equal(typeof(Guid), Analyze(Guid.NewGuid().ToString(), Guid.NewGuid().ToString())[0].DataType);
 			Assert.Equal(typeof(string), Analyze("alpha", "beta")[0].DataType);
 			Assert.Equal(typeof(DateTime), new Schema.Column.Builder("Date", DbType.Date).DataType);
+			Assert.Equal(typeof(DateTime), Analyze("01:00:00", "02:00:00")[0].DataType);
+			Assert.Equal(typeof(string), Analyze("25:00:00", "48:00:00")[0].DataType);
 		}
 
 		[Fact]
@@ -126,6 +128,9 @@ namespace Sylvan.Data
 			Assert.Equal(typeof(TimeSpan), Analyze(new[] { "01:30:00", "25:00:00" }, options: options)[0].DataType);
 			Assert.Equal(typeof(TimeSpan), Analyze(new[] { "-01:00:00", "+02:00:00" }, options: options)[0].DataType);
 			Assert.Equal(typeof(TimeSpan), Analyze(new[] { "1.02:03:04", "2.03:04:05" }, options: options)[0].DataType);
+			var nullable = Analyze(new string?[] { "01:00:00", null, "" }, options: options);
+			Assert.Equal(typeof(TimeSpan), nullable[0].DataType);
+			Assert.True(nullable[0].AllowDBNull == true);
 			Assert.Equal(typeof(int), Analyze(new[] { "1", "2", "3" }, options: options)[0].DataType);
 			Assert.Equal(typeof(string), Analyze(new[] { "01:00:00", "invalid" }, options: options)[0].DataType);
 		}
@@ -162,6 +167,9 @@ namespace Sylvan.Data
 			var options = Options(TemporalInferenceOptions.TimeOnly);
 			Assert.Equal(typeof(TimeOnly), Analyze(new[] { "00:00:00", "23:59:59" }, options: options)[0].DataType);
 			Assert.Equal(typeof(TimeOnly), Analyze(new[] { "1:14 PM", "11:45 AM" }, options: Options(TemporalInferenceOptions.TimeOnly, new CultureInfo("en-US")))[0].DataType);
+			var nullable = Analyze(new string?[] { "01:00:00", null, "" }, options: options);
+			Assert.Equal(typeof(TimeOnly), nullable[0].DataType);
+			Assert.True(nullable[0].AllowDBNull == true);
 			Assert.Equal(typeof(string), Analyze(new[] { "01:00:00", "invalid" }, options: options)[0].DataType);
 			Assert.Equal(typeof(string), Analyze(new[] { "01:00:00", "25:00:00" }, options: options)[0].DataType);
 		}
@@ -227,6 +235,39 @@ namespace Sylvan.Data
 			Assert.Equal(1, asyncReader.AsyncReads);
 			Assert.Equal(syncSchema[0].DataType, asyncSchema[0].DataType);
 			Assert.Equal(syncSchema[0].AllowDBNull, asyncSchema[0].AllowDBNull);
+		}
+
+		[Fact]
+		public void ZeroRowLimitReadsNoRows()
+		{
+			using var reader = new TrackingReader(CreateReader("1", "2"));
+			var schema = new SchemaAnalyzer(new SchemaAnalyzerOptions { AnalyzeRowCount = 0 }).Analyze(reader).GetSchema();
+			Assert.Equal(0, reader.SyncReads);
+			Assert.Equal(typeof(string), schema[0].DataType);
+		}
+
+		[Fact]
+		public async Task TemporalSynchronousAndAsynchronousResultsMatch()
+		{
+			var cases = new List<(string[] Values, TemporalInferenceOptions Options)>
+			{
+				(new[] { "25:00:00", "48:00:00" }, TemporalInferenceOptions.TimeSpan),
+			};
+#if NET6_0_OR_GREATER
+			cases.Add((new[] { "2024-01-01", "2024-01-02" }, TemporalInferenceOptions.DateOnly));
+			cases.Add((new[] { "01:00:00", "02:30:00" }, TemporalInferenceOptions.TimeOnly));
+#endif
+			foreach (var item in cases)
+			{
+				var options = new SchemaAnalyzerOptions { TemporalInference = item.Options, Culture = CultureInfo.InvariantCulture };
+				using var syncReader = CreateReader(item.Values);
+				var sync = new SchemaAnalyzer(options).Analyze(syncReader).GetSchema();
+				using var asyncReader = CreateReader(item.Values);
+				var asyncResult = (await new SchemaAnalyzer(options).AnalyzeAsync(asyncReader)).GetSchema();
+				Assert.Equal(sync[0].DataType, asyncResult[0].DataType);
+				Assert.Equal(sync[0].CommonDataType, asyncResult[0].CommonDataType);
+				Assert.Equal(sync[0].AllowDBNull, asyncResult[0].AllowDBNull);
+			}
 		}
 
 		[Fact]
