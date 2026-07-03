@@ -5,7 +5,7 @@ _Next_
 - Adds explicit culture support and deterministic, row-order-independent `TimeOnly` versus `TimeSpan` selection.
 - Adds distinct `dateonly`, `timeonly` and `timespan` schema tokens with stable CLR-type round-tripping.
 - Preserves typed temporal and GUID columns during schema analysis and series detection.
-- Adds common `DbType.Time` and `TimeSpan` mapping without changing the upstream general `DbType.Date` mapping.
+- Adds `DbType.Time` to `TimeSpan` and `TimeSpan` to `DbType.Time` mappings without changing the upstream general `DbType.Date` mapping.
 
 _0.2.17_
 - Fixes a sync-over-async case in the `SchemaAnalyzer.AnalyzeAsync` method.
