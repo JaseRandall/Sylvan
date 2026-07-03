@@ -207,7 +207,52 @@ namespace Sylvan.Data
 			using var reader = ObjectDataReader.CreateBuilder<ValueRow>().AddColumn(name, row => row.Value).Build(values.Select(value => new ValueRow { Value = value }));
 			return new SchemaAnalyzer(options).Analyze(reader).GetSchema();
 		}
-		static Schema Analyze(IEnumerable<string?> values, string name, SchemaAnalyzerOptions options) => Analyze(values, name, (SchemaAnalyzerOptions?)options);
 		sealed class ValueRow { public string? Value { get; set; } }
+	}
+
+	public class TemporalSchemaAnalyzerExecutionTests
+	{
+		[Fact]
+		public async Task SynchronousAndAsynchronousAnalysisUseMatchingLimits()
+		{
+			var options = new SchemaAnalyzerOptions { AnalyzeRowCount = 1 };
+			using var sync = new TrackingReader(CreateReader("1", "2", "3"));
+			var syncSchema = new SchemaAnalyzer(options).Analyze(sync).GetSchema();
+			Assert.Equal(1, sync.SyncReads);
+			Assert.Equal(0, sync.AsyncReads);
+
+			using var asyncReader = new TrackingReader(CreateReader("1", "2", "3"));
+			var asyncSchema = (await new SchemaAnalyzer(options).AnalyzeAsync(asyncReader)).GetSchema();
+			Assert.Equal(0, asyncReader.SyncReads);
+			Assert.Equal(1, asyncReader.AsyncReads);
+			Assert.Equal(syncSchema[0].DataType, asyncSchema[0].DataType);
+			Assert.Equal(syncSchema[0].AllowDBNull, asyncSchema[0].AllowDBNull);
+		}
+
+		[Fact]
+		public void ExplicitCultureRetainsNumericGrammar()
+		{
+			Assert.Equal(typeof(int), Analyze(CultureInfo.InvariantCulture, "1", "2")[0].DataType);
+			Assert.Equal(typeof(double), Analyze(CultureInfo.InvariantCulture, "1.2e3", "2.4e3")[0].DataType);
+			Assert.Equal(typeof(decimal), Analyze(new CultureInfo("fr-FR"), "1,25", "2,50")[0].DataType);
+		}
+
+		static Schema Analyze(CultureInfo culture, params string[] values)
+		{
+			using var reader = CreateReader(values);
+			return new SchemaAnalyzer(new SchemaAnalyzerOptions { Culture = culture }).Analyze(reader).GetSchema();
+		}
+		static DbDataReader CreateReader(params string[] values) => ObjectDataReader.CreateBuilder<ValueRow>()
+			.AddColumn("Value", row => row.Value)
+			.Build(values.Select(value => new ValueRow { Value = value }));
+		sealed class ValueRow { public string Value { get; set; } = string.Empty; }
+		sealed class TrackingReader : DataReaderAdapter
+		{
+			public TrackingReader(DbDataReader reader) : base(reader) { }
+			public int SyncReads { get; private set; }
+			public int AsyncReads { get; private set; }
+			public override bool Read() { SyncReads++; return Reader.Read(); }
+			public override Task<bool> ReadAsync(CancellationToken cancellationToken) { AsyncReads++; return Reader.ReadAsync(cancellationToken); }
+		}
 	}
 }
