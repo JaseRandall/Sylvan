@@ -58,18 +58,21 @@ public class AnalysisResult : IEnumerable<ColumnInfo>
 			{
 				int seriesEnd = series.seriesEnd;
 				var types = column.GetColType();
+				bool containsProtectedType = IsProtectedSeriesType(types);
 				bool allowNull = false;
 				for (int j = i; j <= seriesEnd; j++)
 				{
 					var seriesColumn = columns[j];
+					var seriesColumnType = seriesColumn.GetColType();
 					allowNull |= seriesColumn.AllowDbNull;
-					types &= seriesColumn.GetColType();
+					containsProtectedType |= IsProtectedSeriesType(seriesColumnType);
+					types &= seriesColumnType;
 				}
 
-				if (types == ColumnInfo.ColType.None)
+				if (types == ColumnInfo.ColType.None && containsProtectedType)
 				{
-					// Preserve incompatible columns individually rather than silently
-					// degrading a temporal or GUID series to string.
+					// Preserve incompatible temporal or GUID columns individually
+					// rather than silently degrading the series to string.
 					for (int j = i; j <= seriesEnd; j++)
 					{
 						schema.Add(columns[j].CreateColumnSchema());
@@ -97,6 +100,16 @@ public class AnalysisResult : IEnumerable<ColumnInfo>
 			schema.Add(column.CreateColumnSchema());
 		}
 		return schema;
+	}
+
+	static bool IsProtectedSeriesType(ColumnInfo.ColType type)
+	{
+		const ColumnInfo.ColType protectedTypes =
+			ColumnInfo.ColType.Guid |
+			ColumnInfo.ColType.DateOnly |
+			ColumnInfo.ColType.TimeOnly |
+			ColumnInfo.ColType.TimeSpan;
+		return (type & protectedTypes) != 0;
 	}
 
 	sealed class SeriesInfo
