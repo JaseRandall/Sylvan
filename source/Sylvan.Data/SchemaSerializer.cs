@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Data;
 using System.IO;
@@ -27,7 +27,6 @@ sealed class SimpleSchemaSerializer
 			"\r\n|\n",
 			RegexOptions.Multiline | RegexOptions.Compiled
 		);
-
 
 	static readonly Lazy<Dictionary<string, DbType>> ColumnTypeMap = new(InitializeTypeMap);
 
@@ -59,96 +58,147 @@ sealed class SimpleSchemaSerializer
 	/// Attempts to parse a schema specification.
 	/// </summary>
 	/// <param name="spec">The schema specification string.</param>
-	/// <returns>A Schema, or null if it failed to parse.</returns>
+	/// <returns>A Schema.</returns>
 	public static Schema Parse(string spec)
 	{
 		var builder = new Schema.Builder();
-
 		var map = ColumnTypeMap.Value;
 		var colSpecs = NewLineRegex.Replace(spec, "").Split(',');
 
 		foreach (var colSpec in colSpecs)
 		{
 			var match = ColSpecRegex.Match(colSpec);
-			if (match.Success)
-			{
-				var typeGroup = match.Groups["Type"];
-				var formatGroup = match.Groups["Format"];
-				var baseNameGroup = match.Groups["BaseName"];
-				var baseName = baseNameGroup.Success ? baseNameGroup.Value : null;
-				var name = match.Groups["Name"].Value;
-				DbType type = DbType.String;
-				bool allowNull = false;
-				int size = -1;
-				if (typeGroup.Success)
-				{
-					var typeName = typeGroup.Value;
-					allowNull = match.Groups["AllowNull"].Success;
-					var sg = match.Groups["Size"];
-					size = sg.Success ? int.Parse(sg.Value) : -1;
-					if (!map.TryGetValue(typeName, out type))
-					{
-						throw new ArgumentException();
-					}
-				}
-				string? format = null;
-				if (formatGroup.Success)
-				{
-					format = formatGroup.Value;
-				}
-
-				var cb = new Schema.Column.Builder(name, type, allowNull)
-				{
-					BaseColumnName = baseName,
-					ColumnSize = size == -1 ? null : (int?)size,
-					Format = format
-				};
-
-				// if the column represents a series.
-				if (name.EndsWith(SeriesSymbol))
-				{
-					cb.IsSeries = true;
-					cb.ColumnName = "";
-					cb.SeriesHeaderFormat = cb.BaseColumnName;
-					cb.SeriesOrdinal = 0;
-					cb.SeriesName = name.Substring(0, name.Length - 1);
-					if (cb.BaseColumnName != null)
-					{
-						var m = DataBinder.SeriesKeyRegex.Match(cb.BaseColumnName);
-						if (m.Success)
-						{
-							var seriesTypeName = m.Groups[1].Value;
-							if (ColumnTypeMap.Value.TryGetValue(seriesTypeName, out DbType t))
-							{
-								cb.SeriesType = DataBinder.GetDataType(t);
-							}
-							else
-							{
-								throw new ArgumentException();
-							}
-						}
-					}
-				}
-
-				builder.Add(cb);
-			}
-			else
+			if (!match.Success)
 			{
 				throw new ArgumentException();
 			}
+
+			var typeGroup = match.Groups["Type"];
+			var formatGroup = match.Groups["Format"];
+			var baseNameGroup = match.Groups["BaseName"];
+			var baseName = baseNameGroup.Success ? baseNameGroup.Value : null;
+			var name = match.Groups["Name"].Value;
+			bool allowNull = false;
+			int size = -1;
+			Schema.Column.Builder columnBuilder;
+
+			if (typeGroup.Success)
+			{
+				var typeName = typeGroup.Value;
+				allowNull = match.Groups["AllowNull"].Success;
+				var sizeGroup = match.Groups["Size"];
+				size = sizeGroup.Success ? int.Parse(sizeGroup.Value) : -1;
+
+				if (TryGetExplicitClrType(typeName, out var clrType))
+				{
+					columnBuilder = new Schema.Column.Builder(name, clrType, allowNull);
+					columnBuilder.CommonDataType = GetExplicitCommonDataType(clrType);
+				}
+				else if (map.TryGetValue(typeName, out var dbType))
+				{
+					columnBuilder = new Schema.Column.Builder(name, dbType, allowNull);
+				}
+				else
+				{
+					throw new ArgumentException();
+				}
+			}
+			else
+			{
+				columnBuilder = new Schema.Column.Builder(name, DbType.String, false);
+			}
+
+			columnBuilder.BaseColumnName = baseName;
+			columnBuilder.ColumnSize = size == -1 ? null : (int?)size;
+			if (formatGroup.Success)
+			{
+				columnBuilder.Format = formatGroup.Value;
+			}
+
+			if (name.EndsWith(SeriesSymbol))
+			{
+				columnBuilder.IsSeries = true;
+				columnBuilder.ColumnName = "";
+				columnBuilder.SeriesHeaderFormat = columnBuilder.BaseColumnName;
+				columnBuilder.SeriesOrdinal = 0;
+				columnBuilder.SeriesName = name.Substring(0, name.Length - 1);
+				if (columnBuilder.BaseColumnName != null)
+				{
+					var seriesMatch = DataBinder.SeriesKeyRegex.Match(columnBuilder.BaseColumnName);
+					if (seriesMatch.Success)
+					{
+						var seriesTypeName = seriesMatch.Groups[1].Value;
+						if (TryGetExplicitClrType(seriesTypeName, out var seriesClrType))
+						{
+							columnBuilder.SeriesType = seriesClrType;
+						}
+						else if (map.TryGetValue(seriesTypeName, out var seriesDbType))
+						{
+							columnBuilder.SeriesType = DataBinder.GetDataType(seriesDbType);
+						}
+						else
+						{
+							throw new ArgumentException();
+						}
+					}
+				}
+			}
+
+			builder.Add(columnBuilder);
 		}
 		return builder.Build();
+	}
+
+	static bool TryGetExplicitClrType(string typeName, out Type type)
+	{
+		if (string.Equals(typeName, "timespan", StringComparison.OrdinalIgnoreCase))
+		{
+			type = typeof(TimeSpan);
+			return true;
+		}
+#if NET6_0_OR_GREATER
+		if (string.Equals(typeName, "dateonly", StringComparison.OrdinalIgnoreCase))
+		{
+			type = typeof(DateOnly);
+			return true;
+		}
+		if (string.Equals(typeName, "timeonly", StringComparison.OrdinalIgnoreCase))
+		{
+			type = typeof(TimeOnly);
+			return true;
+		}
+#endif
+		type = null!;
+		return false;
+	}
+
+	static DbType GetExplicitCommonDataType(Type type)
+	{
+		if (type == typeof(TimeSpan))
+		{
+			return DbType.Time;
+		}
+#if NET6_0_OR_GREATER
+		if (type == typeof(DateOnly))
+		{
+			return DbType.Date;
+		}
+		if (type == typeof(TimeOnly))
+		{
+			return DbType.Time;
+		}
+#endif
+		throw new ArgumentException();
 	}
 
 	/// <summary>
 	/// Gets the specification string for this schema.
 	/// </summary>
-	/// <returns>A string.</returns>
 	public string GetSchemaSpec(Schema schema)
 	{
-		var w = new StringWriter();
+		var writer = new StringWriter();
 		bool first = true;
-		foreach (var col in schema)
+		foreach (var column in schema)
 		{
 			if (first)
 			{
@@ -156,89 +206,109 @@ sealed class SimpleSchemaSerializer
 			}
 			else
 			{
-				w.Write(",");
+				writer.Write(",");
 				if (multiLine)
 				{
-					w.WriteLine();
+					writer.WriteLine();
 				}
 			}
 
-			if (col.IsSeries == true)
+			if (column.IsSeries == true)
 			{
-				if (col.SeriesHeaderFormat != null)
+				if (column.SeriesHeaderFormat != null)
 				{
-					w.Write(col.SeriesHeaderFormat);
-					w.Write(">");
+					writer.Write(column.SeriesHeaderFormat);
+					writer.Write(">");
 				}
-				w.Write(col.SeriesName + "*");
+				writer.Write(column.SeriesName + "*");
 			}
 			else
 			{
-				if (col.BaseColumnName != null && col.BaseColumnName != col.ColumnName)
+				if (column.BaseColumnName != null && column.BaseColumnName != column.ColumnName)
 				{
-					w.Write(col.BaseColumnName);
-					w.Write(">");
+					writer.Write(column.BaseColumnName);
+					writer.Write(">");
 				}
-				w.Write(col.ColumnName);
+				writer.Write(column.ColumnName);
 			}
-			WriteType(w, col);
+			WriteType(writer, column);
 		}
 
-		return w.ToString();
+		return writer.ToString();
 	}
 
-	static void WriteType(TextWriter w, Schema.Column col)
+	static void WriteType(TextWriter writer, Schema.Column column)
 	{
-		if (col.DataType == typeof(string) && col.AllowDBNull == false && col.ColumnSize == null)
-			return;
-
-		var typeName = col.CommonDataType switch
+		if (column.DataType == typeof(string) && column.AllowDBNull == false && column.ColumnSize == null)
 		{
-			DbType.String => "string",
-			DbType.Int32 => "int",
-			DbType.Double => "double",
-			DbType.Decimal => "decimal",
-			DbType.Boolean => "bool",
-			_ => null
-		};
+			return;
+		}
+
+		var typeName = GetExplicitTypeName(column.DataType) ??
+			column.CommonDataType switch
+			{
+				DbType.String => "string",
+				DbType.Int32 => "int",
+				DbType.Double => "double",
+				DbType.Decimal => "decimal",
+				DbType.Boolean => "bool",
+				_ => null
+			};
+
 		if (typeName == null)
 		{
-			typeName = col.DataType?.Name;
+			typeName = column.DataType?.Name;
 		}
-		if (typeName != null)
+		if (typeName == null)
 		{
-			w.Write(":");
-
-			w.Write(typeName);
-
-			if (col.CommonDataType != null && HasLength(col.CommonDataType.Value))
-			{
-				if (col.ColumnSize != null)
-				{
-					w.Write("[");
-					w.Write(col.ColumnSize?.ToString() ?? "*");
-					w.Write("]");
-				}
-			}
-
-			if (col.AllowDBNull != false)
-			{
-				w.Write("?");
-			}
-
-			if (col.Format != null)
-			{
-				w.Write("{");
-				w.Write(col.Format);
-				w.Write("}");
-			}
+			return;
 		}
+
+		writer.Write(":");
+		writer.Write(typeName);
+
+		if (column.CommonDataType != null && HasLength(column.CommonDataType.Value) && column.ColumnSize != null)
+		{
+			writer.Write("[");
+			writer.Write(column.ColumnSize.Value);
+			writer.Write("]");
+		}
+
+		if (column.AllowDBNull != false)
+		{
+			writer.Write("?");
+		}
+
+		if (column.Format != null)
+		{
+			writer.Write("{");
+			writer.Write(column.Format);
+			writer.Write("}");
+		}
+	}
+
+	static string? GetExplicitTypeName(Type? type)
+	{
+		if (type == typeof(TimeSpan))
+		{
+			return "timespan";
+		}
+#if NET6_0_OR_GREATER
+		if (type == typeof(DateOnly))
+		{
+			return "dateonly";
+		}
+		if (type == typeof(TimeOnly))
+		{
+			return "timeonly";
+		}
+#endif
+		return null;
 	}
 
 	static bool HasLength(DbType type)
 	{
-		return
-			type == DbType.String ||
+		return type == DbType.String ||
 			type == DbType.AnsiString ||
 			type == DbType.Binary;
 	}
