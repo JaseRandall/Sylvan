@@ -83,6 +83,59 @@ var builder =
 DbDataReader reader = builder.Build(records);
 ```
 
+## SchemaAnalyzer temporal inference
+
+`SchemaAnalyzer` retains its existing inference behaviour by default. Modern temporal
+CLR types are inferred only when explicitly enabled through `SchemaAnalyzerOptions`.
+
+```C#
+var options = new SchemaAnalyzerOptions
+{
+	TemporalInference =
+		TemporalInferenceOptions.DateOnly |
+		TemporalInferenceOptions.TimeOnly |
+		TemporalInferenceOptions.TimeSpan,
+	Culture = CultureInfo.GetCultureInfo("en-AU"),
+	DurationColumnNameContains = new[] { "duration", "elapsed" },
+};
+
+var analyzer = new SchemaAnalyzer(options);
+Schema schema = analyzer.Analyze(reader).GetSchema();
+```
+
+The default is `TemporalInferenceOptions.None`. Date-like strings continue to use the
+existing `DateTime` inference rules, and time-like or duration-like strings do not begin
+producing `TimeOnly` or `TimeSpan`. The feature does not change the general
+`DbType.Date` mapping and does not require an `AppContext` switch.
+
+An explicit `Culture` controls date, time-of-day and duration parsing. Numeric parsing
+retains the grammar appropriate to each numeric category, including exponent notation
+for floating-point values.
+
+`DateOnly` inference uses `DateOnly` parsing and rejects values with explicit time
+components. `TimeOnly` inference uses `TimeOnly` parsing rather than treating a
+`TimeSpan` parser as a substitute. `TimeSpan` inference requires time- or duration-like
+syntax, so plain integer columns remain numeric.
+
+When both `TimeOnly` and `TimeSpan` remain viable after sampling, the analyzer selects
+`TimeSpan` when it observed an explicit sign, a day component, a negative duration, a
+duration of at least 24 hours, or a matching duration column-name hint. Otherwise it
+selects `TimeOnly`. The decision is made after all sampled rows have been processed and
+is independent of row order.
+
+The simple schema format defines distinct, case-insensitive `dateonly`, `timeonly` and
+`timespan` tokens. These resolve directly to their CLR types rather than through the
+general `DbType.Date` or `DbType.Time` mappings, so `Schema.Parse(schema.ToString())`
+preserves the temporal CLR type.
+
+Readers that already expose `DateOnly`, `TimeOnly`, `TimeSpan` or `Guid` retain those
+physical CLR types during analysis. Matching nullable and non-nullable properties use
+typed accessors. This feature deliberately does not add general conversion from a
+physical `DateTime` source to a `DateOnly` property.
+
+Homogeneous series preserve `Guid`, `DateOnly`, `TimeOnly` and `TimeSpan` value types.
+If candidate series columns have no compatible common type, the columns remain
+uncollapsed rather than silently degrading to `string` or `DateTime`.
 
 ## Extension
 
