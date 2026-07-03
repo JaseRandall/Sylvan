@@ -168,6 +168,12 @@ public sealed class EncoderStream : Stream
 		}
 	}
 
+	/// <inheritdoc/>
+	public override void Close()
+	{
+		base.Close();
+	}
+
 	/// <summary>
 	/// Releases the resources used by this stream after finalizing all pending encoder output.
 	/// </summary>
