@@ -24,7 +24,7 @@ _0.2.14_
 
 _0.2.13_
 - Data binder now throws an exception if *no* properties get bound in `BindMode.Any`, now at least one must get bound.
-- DataBinder now honors `DataMemberAttribute.IsRequired` property. If unbound, binder creation will throw an `UnboundMemberException` exception.
+- Data binder now honors `DataMemberAttribute.IsRequired` property. If unbound, binder creation will throw an `UnboundMemberException` exception.
 - `AsDataReader` extension method now uses DataMemberAttribute.Name as the header string if present, otherwise the property name is used.
 
 _0.2.12_
@@ -58,7 +58,7 @@ _0.2.5_
 
 _0.2.4_
 - Add experimental DbDataReader.ValidateSchema.
-- Add support for binding to DateOnly and TimeOnly.
+- Add support for binding DateOnly and TimeOnly.
 
 _0.2.3_
 - Fix an issue binding to `record class` types.
